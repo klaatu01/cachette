@@ -1,0 +1,165 @@
+version: 2.1
+
+orbs:
+  aws-cli: circleci/aws-cli@2.0.3
+
+workdir: &workdir /tmp/cachette
+
+commands:
+  deploy_arch_to_region:
+    parameters:
+      region:
+        type: string
+      arch:
+        type: string
+    steps:
+      - run:
+          name: deploy <<parameters.region>> <<parameters.arch>>
+          command: |
+            RESULT=$(aws lambda publish-layer-version --layer-name cachette_<<parameters.arch>> --zip-file "fileb://extensions.zip" --region <<parameters.region>> --compatible-architectures <<parameters.arch>>)
+            VERSION=$(echo $RESULT | jq '.Version')
+            aws lambda add-layer-version-permission --layer-name cachette_<<parameters.arch>> --region <<parameters.region>> --statement-id "public-layer" --version-number $VERSION --action lambda:GetLayerVersion --principal '*'
+
+jobs:
+  test:
+    working_directory: *workdir
+    docker:
+      - image: ekidd/rust-musl-builder:latest
+    steps:
+      - attach_workspace:
+          at: *workdir
+      - checkout
+      - run:
+          name: test
+          command: |
+            cargo test
+  build_x86_64:
+    working_directory: *workdir
+    parameters:
+      arch:
+        type: string
+    docker:
+      - image: ekidd/rust-musl-builder:latest
+    steps:
+      - attach_workspace:
+          at: *workdir
+      - checkout
+      - run:
+          name: build
+          command: |
+            cargo build --features --release
+            mkdir <<parameters.arch>> && 
+            mkdir <<parameters.arch>>/extensions &&
+            cp target/x86_64-unknown-linux-musl/release/cachette <<parameters.arch>>/extensions/cachette_<<parameters.arch>>
+      - save_cache:
+          name: "Saving repository cache for {{ .Branch }} {{ .Revision }} <<parameters.arch>>"
+          key: repo-cache-{{ .Branch }}-{{ .Revision }}-<<parameters.arch>>
+          paths:
+            - <<parameters.arch>>
+            - package.sh
+            - deploy.sh
+
+  build_arm64:
+    working_directory: *workdir
+    parameters:
+      arch:
+        type: string
+    docker:
+      - image: messense/rust-musl-cross:aarch64-musl
+    steps:
+      - attach_workspace:
+          at: *workdir
+      - checkout
+      - run:
+          name: build
+          command: |
+            cargo build --features <<parameters.arch>> --release
+            mkdir <<parameters.arch>> && 
+            mkdir <<parameters.arch>>/extensions &&
+            cp target/aarch64-unknown-linux-musl/release/cachette <<parameters.arch>>/extensions/cachette_<<parameters.arch>>
+      - save_cache:
+          name: "Saving repository cache for {{ .Branch }} {{ .Revision }} <<parameters.arch>>"
+          key: repo-cache-{{ .Branch }}-{{ .Revision }}-<<parameters.arch>>
+          paths:
+            - <<parameters.arch>>
+            - package.sh
+            - deploy.sh
+
+  deploy:
+    working_directory: *workdir
+    parameters:
+      arch:
+        type: string
+    executor: aws-cli/default
+    steps:
+      - attach_workspace:
+          at: *workdir
+      - restore_cache:
+          keys:
+            - repo-cache-{{ .Branch }}-{{ .Revision }}-<<parameters.arch>>
+      - aws-cli/setup
+      - run:
+          name: package
+          command: |
+            cd <<parameters.arch>> &&
+            zip -r extensions.zip extensions &&
+            mv extensions.zip ../ &&
+            cd .. &&
+            rm -rf <<parameters.arch>>
+      - deploy_arch_to_region:
+          region: "eu-west-1"
+          arch: <<parameters.arch>>
+      - deploy_arch_to_region:
+          region: "eu-west-2"
+          arch: <<parameters.arch>>
+      - deploy_arch_to_region:
+          region: "eu-central-1"
+          arch: <<parameters.arch>>
+      - deploy_arch_to_region:
+          region: "us-east-1"
+          arch: <<parameters.arch>>
+      - deploy_arch_to_region:
+          region: "us-west-2"
+          arch: <<parameters.arch>>
+      - deploy_arch_to_region:
+          region: "us-east-2"
+          arch: <<parameters.arch>>
+
+workflows:
+  workflow:
+    jobs:
+      - test
+      - build_x86_64:
+          arch: x86_64
+          name: build_x86_64
+          requires:
+            - test
+      - release_x86_64:
+          type: approval
+          requires:
+            - build_x86_64
+          filters:
+            branches:
+              only:
+                - main
+      - deploy:
+          arch: x86_64
+          requires:
+            - release_x86_64
+      - build_arm64:
+          arch: arm64
+          name: build_arm64
+          requires:
+            - test
+      - release_arm64:
+          type: approval
+          requires:
+            - build_arm64
+          filters:
+            branches:
+              only:
+                - main
+      - deploy:
+          arch: arm64
+          requires:
+            - release_arm64
