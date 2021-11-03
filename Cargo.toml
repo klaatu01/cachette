@@ -20,6 +20,7 @@ futures = "0.3.8"
 log = "0.4.13"
 env_logger = "0.8.2"
 cfg-if = "1.0.0"
+openssl = { version = "0.10", features = ["vendored"] }
 bytes = "1.0"
 
 [features]

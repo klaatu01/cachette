@@ -47,7 +47,7 @@ jobs:
       - run:
           name: build
           command: |
-            cargo build --features --release
+            cargo build --release
             mkdir <<parameters.arch>> && 
             mkdir <<parameters.arch>>/extensions &&
             cp target/x86_64-unknown-linux-musl/release/cachette <<parameters.arch>>/extensions/cachette_<<parameters.arch>>
