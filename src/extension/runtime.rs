@@ -1,13 +1,18 @@
+use crate::{cache, config::CacheConfig};
+
 use super::{base_url, ExtensionId, EXTENSION_ID_HEADER};
 use anyhow::Result;
 use reqwest::Client;
 
-pub async fn run(client: &Client, ext_id: ExtensionId) -> Result<()> {
+pub async fn run(client: &Client, ext_id: ExtensionId, config: CacheConfig) -> Result<()> {
     loop {
         let event = next_event(&client, &ext_id).await;
         match event {
             Ok(evt) => match evt {
-                NextEventResponse::Invoke { .. } => (),
+                NextEventResponse::Invoke { .. } => {
+                    let _ = cache::process_expired(config.clone()).await;
+                    ()
+                }
                 NextEventResponse::Shutdown {
                     shutdown_reason, ..
                 } => {

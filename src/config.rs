@@ -28,6 +28,7 @@ pub struct HttpTarget {
 pub struct ItemConfig {
     pub file_name: String,
     pub target: Target,
+    pub lifetime: Option<u128>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
