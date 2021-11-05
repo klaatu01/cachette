@@ -20,8 +20,8 @@ async fn main() -> Result<()> {
     let ext_id = extension::register_extension(&client).await?;
     log::debug!("Registered.");
     let config = config::parse_config_from_envar()?;
-    cache::process(config).await?;
+    cache::process_all(config.clone()).await?;
     log::debug!("Starting Runtime Consumer...");
-    let response = runtime::run(&client, ext_id).await;
+    let response = runtime::run(&client, ext_id, config).await;
     response
 }

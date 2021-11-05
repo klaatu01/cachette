@@ -20,6 +20,20 @@ commands:
             VERSION=$(echo $RESULT | jq '.Version')
             aws lambda add-layer-version-permission --layer-name cachette_<<parameters.arch>> --region <<parameters.region>> --statement-id "public-layer" --version-number $VERSION --action lambda:GetLayerVersion --principal '*'
 
+  deploy_dev_arch_to_region:
+    parameters:
+      region:
+        type: string
+      arch:
+        type: string
+    steps:
+      - run:
+          name: deploy <<parameters.region>> <<parameters.arch>>
+          command: |
+            RESULT=$(aws lambda publish-layer-version --layer-name cachette_<<parameters.arch>>_dev --zip-file "fileb://extensions.zip" --region <<parameters.region>> --compatible-architectures <<parameters.arch>>)
+            VERSION=$(echo $RESULT | jq '.Version')
+            aws lambda add-layer-version-permission --layer-name cachette_<<parameters.arch>>_dev --region <<parameters.region>> --statement-id "public-layer" --version-number $VERSION --action lambda:GetLayerVersion --principal '*'
+
 jobs:
   test:
     working_directory: *workdir
@@ -85,6 +99,32 @@ jobs:
             - package.sh
             - deploy.sh
 
+  build_x86_64_dev:
+    working_directory: *workdir
+    parameters:
+      arch:
+        type: string
+    docker:
+      - image: ekidd/rust-musl-builder:latest
+    steps:
+      - attach_workspace:
+          at: *workdir
+      - checkout
+      - run:
+          name: build
+          command: |
+            cargo build --features "dev, <<parameters.arch>>" --release
+            mkdir <<parameters.arch>> && 
+            mkdir <<parameters.arch>>/extensions &&
+            cp target/x86_64-unknown-linux-musl/release/cachette <<parameters.arch>>/extensions/cachette_<<parameters.arch>>
+      - save_cache:
+          name: "Saving repository cache for {{ .Branch }} {{ .Revision }} <<parameters.arch>>"
+          key: repo-cache-{{ .Branch }}-{{ .Revision }}-<<parameters.arch>>
+          paths:
+            - <<parameters.arch>>
+            - package.sh
+            - deploy.sh
+
   deploy:
     working_directory: *workdir
     parameters:
@@ -125,6 +165,31 @@ jobs:
           region: "us-east-2"
           arch: <<parameters.arch>>
 
+  deploy_dev:
+    working_directory: *workdir
+    parameters:
+      arch:
+        type: string
+    executor: aws-cli/default
+    steps:
+      - attach_workspace:
+          at: *workdir
+      - restore_cache:
+          keys:
+            - repo-cache-{{ .Branch }}-{{ .Revision }}-<<parameters.arch>>
+      - aws-cli/setup
+      - run:
+          name: package
+          command: |
+            cd <<parameters.arch>> &&
+            zip -r extensions.zip extensions &&
+            mv extensions.zip ../ &&
+            cd .. &&
+            rm -rf <<parameters.arch>>
+      - deploy_dev_arch_to_region:
+          region: "eu-west-1"
+          arch: <<parameters.arch>>
+
 workflows:
   workflow:
     jobs:
@@ -134,6 +199,24 @@ workflows:
           name: build_x86_64
           requires:
             - test
+      - release_dev_x86_64:
+          type: approval
+          requires:
+            - test
+          filters:
+            branches:
+              ignore:
+                - main
+      - build_x86_64_dev:
+          arch: x86_64
+          name: build_x86_64_dev
+          requires:
+            - release_dev_x86_64
+      - deploy_dev:
+          arch: x86_64
+          name: deploy_dev_x86_64
+          requires:
+            - build_x86_64_dev
       - release_x86_64:
           type: approval
           requires:
