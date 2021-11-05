@@ -76,6 +76,38 @@ mod tests {
                     headers: vec![],
                     method: "get".to_string(),
                 }),
+                lifetime: None,
+            }],
+        };
+        let config2: CacheConfig = serde_json::from_str(string_config).unwrap();
+        assert_eq!(config, config2);
+    }
+
+    #[test]
+    fn can_deserialize_lifetime_config() {
+        let string_config = r#"{
+          "itemConfigs": [
+            {
+              "fileName": "test",
+              "target": {
+                "type": "http",
+                "url": "http://testurl.com",
+                "headers": [],
+                "method": "get"
+              },
+              "lifetime": 30000
+            }
+          ]
+        }"#;
+        let config = CacheConfig {
+            item_configs: vec![ItemConfig {
+                file_name: "test".to_string(),
+                target: Target::Http(HttpTarget {
+                    url: "http://testurl.com".to_string(),
+                    headers: vec![],
+                    method: "get".to_string(),
+                }),
+                lifetime: Some(30000),
             }],
         };
         let config2: CacheConfig = serde_json::from_str(string_config).unwrap();
